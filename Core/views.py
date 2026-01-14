@@ -9,11 +9,115 @@ from django.utils import timezone
 from django.urls import reverse
 from .models import *
 
+@login_required # restrict page to authenticated users
 def Home(request):
     return render(request, 'index.html')
 
 def RegisterView(request):
+    if request.method == 'POST':
+        
+        # getting user inputs from frontend
+        first_name = request.POST.get('first_name')
+        last_name = request.POST.get('last_name')
+        username = request.POST.get('username')
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+
+        # validating user inputs
+        user_data_has_error = False
+
+        # validation checks
+
+        if User.objects.filter(username=username).exists():
+            user_data_has_error = True
+            messages.error(request, 'Username already exists.')
+        
+        if User.objects.filter(email=email).exists():
+            user_data_has_error = True
+            messages.error(request, 'Email already registered.')  
+
+        if len(password)<5:
+            user_data_has_error=True
+            messages.error(request,'Password must be at least 5 characters')
+
+        if user_data_has_error:
+            return redirect('register')
+        
+        else:
+            # creating new user
+            new_user = User.objects.create_user(
+                first_name=first_name,
+                last_name=last_name,
+                username=username,
+                email=email,
+                password=password
+            )
+            messages.success(request, 'Registration successful. You can now log in.')
+            return redirect('login')
+        
     return render(request, 'register.html')
 
 def LoginView(request):
-    return render(request, 'login.html')
+
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+
+        if not username or not password:
+            messages.error(request, 'Please fill all the fields.')
+            return redirect('login')
+        
+        # authenticate user
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request,user)
+            return redirect('home')
+        else:
+            messages.error(request, 'Invalid username or password.')
+            return redirect('login')
+
+    return render(request, 'login.html') 
+
+def LogoutView(request):
+    logout(request)
+    messages.success(request, 'You have been logged out.')
+    return redirect('login')
+
+def ForgotPassword(request):
+    if request.method == 'POST':
+        email = request.POST.get('email')
+
+        try:
+            user = User.objects.get(email=email)
+
+            # create new reset id
+            new_password_reset = PasswordReset(user=user)
+            new_password_reset.save()
+
+            # create password reset ur;
+            password_reset_url = reverse('reset-password', kwargs={'reset_id': new_password_reset.reset_id})
+
+            # email content
+            email_body = f'Click the link below to reset your password:\n\nhttp://{request.get_host()}{password_reset_url}\n\nIf you did not request a password reset, please ignore this email.'
+            email_message = EmailMessage(
+                subject='Password Reset Request',
+                body=email_body,
+                from_email=settings.EMAIL_HOST_USER,
+                to=[email],
+            )
+            email_message.fail_silently=True
+            email_message.send()
+
+            return redirect('password-reset-sent')
+
+        except User.DoesNotExist:
+            messages.error(request, 'No user found with this email address.')
+            return redirect('forgot-password')
+
+    return render(request, 'forgot_password.html')
+
+def PasswordResetSent(request, reset_id):
+    return render(request, 'password_reset_sent.html')
+
+def ResetPassword(request, reset_id):
+    return render(request, 'reset_password.html')
